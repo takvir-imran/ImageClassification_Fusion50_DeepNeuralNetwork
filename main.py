@@ -30,6 +30,7 @@ sep1.image("./ulab.png", width=200)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 class_names = ['BENIGN', 'MSIH', 'MSS']
+random_names  = ["Histo", "Unknown"]
 
 class Involution2d(nn.Module):
     def __init__(self,
@@ -284,9 +285,7 @@ class Fusion_v2(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-        # Zero-initialize the last BN in each residual branch,
-        # so that the residual branch starts with zeros, and each residual block behaves like an identity.
-        # This improves the model by 0.2~0.3% according to https://arxiv.org/abs/1706.02677
+        
         if zero_init_residual:
             for m in self.modules():
                 if isinstance(m, Bottleneck):
@@ -353,7 +352,7 @@ def Fusion50_v2(pretrained=False, progress=True, **kwargs):
                    **kwargs)
 
 model_fusion_v2 = Fusion50_v2(pretrained=False).to(device)
-
+random_model = Fusion50_v2(pretrained=False).to(device)
 from pathlib import Path
 loss_fn = nn.CrossEntropyLoss()
 optimizer = torch.optim.SGD(params=model_fusion_v2.parameters(), lr=0.1, momentum=0.9)
@@ -361,13 +360,17 @@ optimizer = torch.optim.SGD(params=model_fusion_v2.parameters(), lr=0.1, momentu
 
 st.title("Colon Cancer Classification Using Histopathological Image")
 
-path = Path(r"./Fusion_v2_Dataset_v4_150_v1.pt")
+path = Path(r"./Fusion_v2_Dataset_v6_100_B16_adam.pt")
+randomPath = Path(r"./Random_100_B16_adam-2.pt")
 
 checkpoint = torch.load(f=path, map_location=torch.device('cpu'))
 model_fusion_v2.load_state_dict(checkpoint['model_state'])
 optimizer.load_state_dict(checkpoint['optimizer_state'])
 model_fusion_v2.eval()
 
+randCheckpoint = torch.load(f=randomPath, map_location=torch.device('cpu'))
+random_model.load_state_dict(randCheckpoint['model_state'])
+random_model.eval()
 
 uploaded_file = st.file_uploader("Upload Histopathological Image", type=["jpg", "jpeg", "png"])
 
@@ -389,38 +392,38 @@ if uploaded_file is not None:
    
 
     if col1.button('Evaluate'):
-        model_fusion_v2.eval()
+        random_model.eval()
         with torch.inference_mode():
-            custome_image_pred = model_fusion_v2(custom_image_transformed.unsqueeze(0).to(device))
-    
+            custome_image_pred = random_model(custom_image_transformed.unsqueeze(0).to(device))
+        
         custom_image_pred_probs = torch.softmax(custome_image_pred, dim=1)
         tImg = transforms.ToPILImage()
         img=tImg(custom_image_transformed)
         custome_image_pred_labels = torch.argmax(custom_image_pred_probs)
-        st.header("Predictions")
-        c1, c2, c3 = st.columns(3)
-        c1.image(img, caption="Original Image")
-        c3.write(f"Micro satellite category: **{class_names[custome_image_pred_labels]}**")
-        h, w = img.size
-        c3.write(f"Dimention: {h} X {w}")
-        c3.write(f"Image Format: {img.format}")
-        target_layers = [model_fusion_v2.layer4[-1]]
-        cam = GradCAM(model=model_fusion_v2, target_layers=target_layers)
-        targets = [ClassifierOutputTarget(0)]
-        grayscale_cam = cam(input_tensor=custom_image_transformed.unsqueeze(0), targets=targets)
-        grayscale_cam = grayscale_cam[0, :]
-        visualization = show_cam_on_image(custom_image_transformed.permute(1,2,0).numpy(), grayscale_cam, use_rgb=True)
-        c2.image(visualization, caption="GRAD-CAM")
-        
-
-
-
-
-
-
-
-
-
-
-#plt.title("Prediction: "  + class_names[custome_image_pred_labels])
-#plt.imshow(custom_image_transformed.permute(1,2,0))
+        ##previous code
+        if random_names[custome_image_pred_labels] == random_names[0] :
+            model_fusion_v2.eval()
+            with torch.inference_mode():
+                custome_image_pred = model_fusion_v2(custom_image_transformed.unsqueeze(0).to(device))
+    
+            custom_image_pred_probs = torch.softmax(custome_image_pred, dim=1)
+            tImg = transforms.ToPILImage()
+            img=tImg(custom_image_transformed)
+            custome_image_pred_labels = torch.argmax(custom_image_pred_probs)
+            st.header("Predictions")
+            c1, c2, c3 = st.columns(3)
+            c1.image(img, caption="Original Image")
+            c3.write(f"Tissue category: **{class_names[custome_image_pred_labels]}**")
+            h, w = img.size
+            c3.write(f"Dimention: {h} X {w}")
+            c3.write(f"Image Format: {img.format}")
+            target_layers = [model_fusion_v2.layer4[-1]]
+            cam = GradCAM(model=model_fusion_v2, target_layers=target_layers)
+            targets = [ClassifierOutputTarget(0)]
+            grayscale_cam = cam(input_tensor=custom_image_transformed.unsqueeze(0), targets=targets)
+            grayscale_cam = grayscale_cam[0, :]
+            visualization = show_cam_on_image(custom_image_transformed.permute(1,2,0).numpy(), grayscale_cam, use_rgb=True)
+            c2.image(visualization, caption="Interpretation using GRAD-CAM")
+        else:
+            st.header("Error: ")
+            st.error("The Image You have uploaded is not an histopathology image, please upload histopathology image ")
